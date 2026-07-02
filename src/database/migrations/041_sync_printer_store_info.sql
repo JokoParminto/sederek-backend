@@ -54,7 +54,34 @@ WHERE template_type = 'receipt'
   AND jsonb_typeof(preview_content->'sections'->'header') = 'array'
   AND content->'sections'->'store_info' IS NOT NULL;
 
--- 3. Sync footer_text from store_info into preview_content.sections.footer
+-- 3. Add discount_items field to preview_content.sections.payment (for layout preview)
+UPDATE printer_masterdata_template
+SET preview_content = jsonb_set(
+  jsonb_set(
+    preview_content,
+    '{sections,payment,discount_items}',
+    '"1.000"'::jsonb
+  ),
+  '{sections,payment,subtotal}',
+  '"16.000"'::jsonb
+)
+WHERE printer_type = 'receipt'
+  AND preview_content->'sections'->'payment' IS NOT NULL;
+
+UPDATE printer_templates
+SET preview_content = jsonb_set(
+  jsonb_set(
+    preview_content,
+    '{sections,payment,discount_items}',
+    '"1.000"'::jsonb
+  ),
+  '{sections,payment,subtotal}',
+  '"16.000"'::jsonb
+)
+WHERE template_type = 'receipt'
+  AND preview_content->'sections'->'payment' IS NOT NULL;
+
+-- 4. Sync footer_text from store_info into preview_content.sections.footer
 UPDATE printer_templates
 SET preview_content = jsonb_set(
   preview_content,

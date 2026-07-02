@@ -67,8 +67,9 @@ SET preview_content = '{
     },
     "payment": {
       "show_subtotal": true,
-      "subtotal": "15.000",
-      "show_global_discount": false,
+      "subtotal": "16.000",
+      "discount_items": "1.000",
+      "show_global_discount": true,
       "global_discount": "0",
       "show_grand_total": true,
       "grand_total": "15.000",
