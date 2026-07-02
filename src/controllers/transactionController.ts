@@ -2373,7 +2373,7 @@ export const updateTransaction = async (
           item.price,
           item.quantity,
           item.discount?.value || 0,
-          item.discount?.type || "nominal",
+          item.discount?.type || "amount",
           itemSubtotal,
           itemTotal,
           item.notes || null,
@@ -2412,7 +2412,7 @@ export const updateTransaction = async (
     const totals = calculateTransactionTotals(
       itemsResult.rows,
       discount?.value || 0,
-      discount?.type || "nominal",
+      discount?.type || "amount",
     );
 
     // Update transaction
@@ -2431,7 +2431,7 @@ export const updateTransaction = async (
         totals.subtotal,
         totals.discountItems,
         totals.discountGlobal,
-        discount?.type || "nominal",
+        discount?.type || "amount",
         totals.total,
         payment_method || null,
         notes || null,
