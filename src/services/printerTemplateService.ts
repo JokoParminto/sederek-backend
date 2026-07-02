@@ -151,9 +151,9 @@ export const updateTemplateByPrinterId = async (
     await getTemplateByPrinterId(printerId)
 
     const result = await pool.query(
-      `UPDATE printer_templates 
-       SET content = $1::jsonb 
-       WHERE id_printer = $2 
+      `UPDATE printer_templates
+       SET content = $1::jsonb
+       WHERE id_printer = $2
        RETURNING *`,
       [JSON.stringify(content), printerId]
     )
@@ -166,7 +166,8 @@ export const updateTemplateByPrinterId = async (
       )
     }
 
-    return result.rows[0] as PrinterTemplate
+    // Sync preview_content after content update so print reads latest store_info
+    return await syncPreviewContent(printerId)
   } catch (error) {
     if (error instanceof AppError) {
       throw error
