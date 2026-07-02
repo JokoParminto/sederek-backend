@@ -216,8 +216,7 @@ export const updatePrinter = async (
 
     const ALLOWED_COLUMNS = new Set([
       'name', 'description', 'printer_type', 'connection_type',
-      'ip_address', 'port_number', 'device_path',
-      'paper_width', 'font_size', 'status', 'is_default', 'auto_print',
+      'device_path', 'paper_width', 'font_size', 'status', 'is_default', 'auto_print',
     ]);
 
     const safeUpdates = Object.fromEntries(
@@ -367,12 +366,8 @@ export const getAllTemplates = async (
         p.status as printer_status,
         p.description as printer_description,
         p.paper_width,
-        p.paper_height,
-        p.dpi,
         p.font_size,
         p.connection_type,
-        p.ip_address,
-        p.port_number,
         p.device_path
       FROM printer_templates pt
       LEFT JOIN printers p ON pt.id_printer = p.id
@@ -434,7 +429,6 @@ export const getTemplateById = async (
         p.status as printer_status,
         p.description as printer_description,
         p.paper_width,
-        p.dpi,
         p.font_size,
         p.connection_type
       FROM printer_templates pt
