@@ -7,13 +7,13 @@ module.exports = {
       // ── Clustering ──────────────────────────────────────────────
       // 'max'  = pakai semua CPU core
       // angka  = jumlah instance spesifik (misal: 2, 4)
-      instances: 'max',
+      instances: 2,
       exec_mode: 'cluster',
 
       // ── Environment ─────────────────────────────────────────────
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3000,
+        PORT: 3001,
       },
 
       // ── Memory & Restart ────────────────────────────────────────

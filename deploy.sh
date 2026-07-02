@@ -123,6 +123,12 @@ else
   ok "PM2 started: $APP_NAME"
 fi
 
+# ── 9. Balance CPU — scale pos-jagad-api ke 2 jika running ──────────────────
+if pm2 list | grep -q "pos-jagad-api"; then
+  pm2 scale pos-jagad-api 2
+  ok "pos-jagad-api scaled → 2 instances (share 4 cores equally)"
+fi
+
 pm2 save --force
 
 # ── Summary ───────────────────────────────────────────────────────────────────
