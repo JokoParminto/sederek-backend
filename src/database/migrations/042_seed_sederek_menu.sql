@@ -4,7 +4,31 @@
 
 BEGIN;
 
--- ── 1. KATEGORI ───────────────────────────────────────────────────────────────
+-- ── 0. HAPUS DATA JAGAD COFFEE (cleanup rebranding) ──────────────────────────
+-- Hapus product_addons Jagad (hanya yang linked ke produk Jagad)
+DELETE FROM product_addons
+WHERE product_id IN (
+  SELECT id FROM products
+  WHERE name IN (
+    'Aren Latte','Salted Caramel Latte','Latte','Hazelnut Latte','Strawberry Latte',
+    'Cappuccino','Americano','Americano Arabica','Lemon Black',
+    'Cokelat susu','Taro Susu','Red Velvet',
+    'Summer Passion','Berry Twist','Summer Lychee','Matcha Latte','Sunny Lemon'
+  )
+);
+-- Hapus produk Jagad
+DELETE FROM products
+WHERE name IN (
+  'Aren Latte','Salted Caramel Latte','Latte','Hazelnut Latte','Strawberry Latte',
+  'Cappuccino','Americano','Americano Arabica','Lemon Black',
+  'Cokelat susu','Taro Susu','Red Velvet',
+  'Summer Passion','Berry Twist','Summer Lychee','Matcha Latte','Sunny Lemon'
+);
+-- Hapus kategori Jagad
+DELETE FROM categories
+WHERE name IN ('Signature Latte','Esspresso Based','Coffee Mocktail','Non Coffee');
+
+-- ── 1. KATEGORI SEDEREK ────────────────────────────────────────────────────────
 
 INSERT INTO categories (name, description, icon, sort_order, status) VALUES
   ('Kopi Susu',      'Espresso based dengan susu',         '☕', 1, 'active'),
