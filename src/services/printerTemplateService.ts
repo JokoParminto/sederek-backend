@@ -6,7 +6,7 @@ export interface PrinterTemplate {
   id: string
   name: string
   description?: string
-  template_type: 'receipt' | 'barista'
+  template_type: 'receipt' | 'barista' | 'kitchen'
   id_printer: string
   content: Record<string, any>
   preview_content?: Record<string, any>
@@ -80,7 +80,7 @@ export const getTemplateByPrinterId = async (printerId: string): Promise<Printer
  */
 export const createTemplateFromMasterdata = async (
   printerId: string,
-  printerType: 'receipt' | 'barista'
+  printerType: 'receipt' | 'barista' | 'kitchen'
 ): Promise<PrinterTemplate> => {
   try {
     // Get masterdata template
@@ -211,7 +211,7 @@ export const deleteTemplateByPrinterId = async (printerId: string): Promise<void
  * @returns All templates for this printer type
  */
 export const getTemplatesByType = async (
-  printerType: 'receipt' | 'barista'
+  printerType: 'receipt' | 'barista' | 'kitchen'
 ): Promise<PrinterTemplate[]> => {
   try {
     const result = await pool.query(
@@ -243,7 +243,7 @@ export const getTemplatesByType = async (
  */
 export const replaceTemplateOnTypeChange = async (
   printerId: string,
-  newPrinterType: 'receipt' | 'barista'
+  newPrinterType: 'receipt' | 'barista' | 'kitchen'
 ): Promise<PrinterTemplate> => {
   try {
     // Delete existing template for this printer
@@ -282,7 +282,7 @@ export const syncPreviewContent = async (printerId: string): Promise<PrinterTemp
     const template = await getTemplateByPrinterId(printerId)
 
     // Get masterdata template to use as reference for preview structure
-    const masterdataTemplate = await getMasterdataTemplateByType(template.template_type as 'receipt' | 'barista')
+    const masterdataTemplate = await getMasterdataTemplateByType(template.template_type as 'receipt' | 'barista' | 'kitchen')
 
     // Start with the masterdata preview_content as base
     const syncedPreviewContent = JSON.parse(JSON.stringify(masterdataTemplate.preview_content))
@@ -409,6 +409,37 @@ export const syncPreviewContent = async (printerId: string): Promise<PrinterTemp
             return { ...field, logo: baristaStoreInfo.logo_url }
           return field
         })
+      }
+    }
+    // For Kitchen template (same structure as barista)
+    else if (template.template_type === 'kitchen') {
+      const contentConfig = template.content as any
+      const headerConfig = contentConfig.sections?.header || {}
+      const itemsConfig = contentConfig.sections?.items || {}
+      const footerConfig = contentConfig.sections?.footer || {}
+
+      if (syncedPreviewContent.sections?.header && Array.isArray(syncedPreviewContent.sections.header)) {
+        syncedPreviewContent.sections.header.forEach((headerField: any) => {
+          if (headerField.show_queue_number !== undefined)
+            headerField.show_queue_number = headerConfig.show_queue_number !== false
+          if (headerField.show_table_number !== undefined)
+            headerField.show_table_number = headerConfig.show_table_number !== false
+          if (headerField.show_date_time !== undefined)
+            headerField.show_date_time = headerConfig.show_date_time !== false
+          if (headerField.show_customer_name !== undefined)
+            headerField.show_customer_name = headerConfig.show_customer_name !== false
+        })
+      }
+
+      if (syncedPreviewContent.sections?.items) {
+        syncedPreviewContent.sections.items.show_quantity = itemsConfig.show_quantity !== false
+        syncedPreviewContent.sections.items.show_add_ons = itemsConfig.show_add_ons !== false
+        syncedPreviewContent.sections.items.show_notes = itemsConfig.show_notes !== false
+      }
+
+      if (syncedPreviewContent.sections?.footer) {
+        syncedPreviewContent.sections.footer.show_preparation_reminder = footerConfig.show_preparation_reminder !== false
+        syncedPreviewContent.sections.footer.preparation_text = footerConfig.preparation_text || syncedPreviewContent.sections.footer.preparation_text
       }
     }
 

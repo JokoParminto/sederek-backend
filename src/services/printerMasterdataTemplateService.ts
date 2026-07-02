@@ -4,7 +4,7 @@ import { AppError } from '../middleware/errorHandler'
 export interface MasterdataTemplate {
   id: string
   name: string
-  printer_type: 'receipt' | 'barista'
+  printer_type: 'receipt' | 'barista' | 'kitchen'
   content: Record<string, any>
   preview_content: Record<string, any>
   description?: string
@@ -19,7 +19,7 @@ export interface MasterdataTemplate {
  * @returns Complete masterdata template with JSONB content
  */
 export const getMasterdataTemplateByType = async (
-  printerType: 'receipt' | 'barista'
+  printerType: 'receipt' | 'barista' | 'kitchen'
 ): Promise<MasterdataTemplate> => {
   try {
     const result = await pool.query(
@@ -107,7 +107,7 @@ export const getMasterdataTemplateById = async (id: string): Promise<MasterdataT
  */
 export const createMasterdataTemplate = async (
   name: string,
-  printerType: 'receipt' | 'barista',
+  printerType: 'receipt' | 'barista' | 'kitchen',
   content: Record<string, any>,
   description?: string
 ): Promise<MasterdataTemplate> => {

@@ -377,7 +377,7 @@ export interface Printer {
   id: string
   name: string
   description?: string
-  printer_type: 'receipt' | 'barista' | 'label' | 'a4' | 'network'
+  printer_type: 'receipt' | 'barista' | 'kitchen' | 'label' | 'a4' | 'network'
   connection_type: 'usb' | 'network' | 'bluetooth'
   ip_address?: string
   port_number?: number
@@ -445,7 +445,7 @@ export interface PrinterJob {
 
 export interface PrinterRouting {
   id: string
-  print_type: 'customer_receipt' | 'barista_ticket' | 'label'
+  print_type: 'customer_receipt' | 'barista_ticket' | 'kitchen_ticket' | 'label'
   printer_id: string
   template_id?: string
   is_enabled: boolean
@@ -469,7 +469,7 @@ export interface PrinterAuditLog {
 export interface CreatePrinterRequest {
   name: string
   description?: string
-  printer_type: 'receipt' | 'barista' | 'label' | 'a4' | 'network'
+  printer_type: 'receipt' | 'barista' | 'kitchen' | 'label' | 'a4' | 'network'
   connection_type: 'usb' | 'network' | 'bluetooth'
   paper_width: number
   font_size?: number
@@ -481,7 +481,7 @@ export interface CreatePrinterRequest {
 export interface UpdatePrinterRequest {
   name?: string
   description?: string
-  printer_type?: 'receipt' | 'barista'
+  printer_type?: 'receipt' | 'barista' | 'kitchen'
   connection_type?: 'usb' | 'network' | 'bluetooth'
   paper_width?: number
   font_size?: number
@@ -549,10 +549,10 @@ export type ProductStatus = 'active' | 'inactive'
 export type TransactionStatus = 'open' | 'partial_paid' | 'paid' | 'cancelled'
 export type DiscountType = 'amount' | 'percentage'
 export type PaymentMethod = 'cash' | 'qris' | 'transfer' | 'split'
-export type PrinterType = 'receipt' | 'barista' | 'label' | 'a4' | 'network'
+export type PrinterType = 'receipt' | 'barista' | 'kitchen' | 'label' | 'a4' | 'network'
 export type PrinterConnectionType = 'usb' | 'network' | 'bluetooth'
 export type PrinterStatus = 'active' | 'inactive' | 'offline'
 export type PrintJobType = 'receipt' | 'barista' | 'report' | 'test'
 export type PrintJobStatus = 'pending' | 'printing' | 'completed' | 'failed' | 'cancelled'
 export type PrintTemplateType = 'receipt' | 'barista' | 'report' | 'custom'
-export type PrintType = 'customer_receipt' | 'barista_ticket' | 'label'
+export type PrintType = 'customer_receipt' | 'barista_ticket' | 'kitchen_ticket' | 'label'

@@ -157,7 +157,7 @@ export const createPrinter = async (
     try {
       await printerTemplateService.createTemplateFromMasterdata(
         result.rows[0].id,
-        printer_type as "receipt" | "barista",
+        printer_type as "receipt" | "barista" | "kitchen",
       );
     } catch (templateError) {
       console.error(
@@ -245,7 +245,7 @@ export const updatePrinter = async (
       try {
         await printerTemplateService.replaceTemplateOnTypeChange(
           id,
-          updates.printer_type as "receipt" | "barista",
+          updates.printer_type as "receipt" | "barista" | "kitchen",
         );
       } catch (templateError) {
         console.error(
