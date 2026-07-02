@@ -59,7 +59,15 @@ INSERT INTO public.role_permissions (id, role, permission_id, created_at) VALUES
 INSERT INTO public.role_permissions (id, role, permission_id, created_at) VALUES ('6e1fe038-6595-4fe4-9386-bcf67de77dfb', 'owner', 'ad113087-6120-40b3-8564-e6ab527d2b15', '2026-06-02 15:38:09.480313') ON CONFLICT DO NOTHING;
 INSERT INTO public.role_permissions (id, role, permission_id, created_at) VALUES ('3470d037-eb1e-4fc7-9090-96fa5ad296fe', 'owner', '40892485-76a8-4636-8043-0cd6e051e7c9', '2026-06-02 15:38:09.480313') ON CONFLICT DO NOTHING;
 
--- categories: diisi oleh migration 042_seed_sederek_menu.sql
+-- categories
+INSERT INTO categories (name, description, icon, sort_order, status) VALUES
+  ('Kopi Susu',      'Espresso based dengan susu',         '☕', 1, 'active'),
+  ('Non-Coffee',     'Minuman non-kopi',                   '🥤', 2, 'active'),
+  ('Hot Latte',      'Minuman panas latte',                '🔥', 3, 'active'),
+  ('Black Coffee',   'Kopi hitam tanpa susu',              '☕', 4, 'active'),
+  ('Moktail Coffee', 'Minuman kopi kreatif moktail style', '🍹', 5, 'active'),
+  ('Food',           'Makanan',                            '🍟', 6, 'active')
+ON CONFLICT (name) DO NOTHING;
 
 -- add_ons
 INSERT INTO public.add_ons (id, name, price, description, icon, sort_order, status, created_at, updated_at) VALUES ('a1b4b408-5218-4dcc-892a-786a6dd963ee', 'Extra Shot Espresso', 3000.00, 'Tambahan 1 shot espresso', NULL, 1, 'active', '2026-05-28 04:15:25.54253', '2026-05-28 17:02:27.578994') ON CONFLICT DO NOTHING;
@@ -90,7 +98,55 @@ INSERT INTO public.printer_templates (id, name, description, template_type, cont
 
 -- printer_routing
 
--- products + product_addons: diisi oleh migration 042_seed_sederek_menu.sql
+-- products (WHERE NOT EXISTS — aman re-run, tidak timpa yang sudah ada)
+INSERT INTO products (category_id, name, price, hpp, member_price, image_url, stock, status)
+SELECT cat.id, p.name, p.price, 0, NULL, NULL, 10000, 'active'
+FROM (VALUES
+  ('Kopi Susu', 'ESKA Kopsu Ice',    17000),
+  ('Kopi Susu', 'Dyrti',             17000),
+  ('Kopi Susu', 'Butterscoth',       17000),
+  ('Kopi Susu', 'Savana Kopsu Ice',  17000),
+  ('Kopi Susu', 'Avocado Kopsu Ice', 15000),
+  ('Kopi Susu', 'Caramel Kopsu Ice', 15000),
+  ('Kopi Susu', 'Pandan Wangi',      13000),
+  ('Kopi Susu', 'Vanila Kopsu Ice',  13000),
+  ('Kopi Susu', 'Kopsu Original',    12000),
+  ('Non-Coffee', 'Matcha Latte Ice',   15000),
+  ('Non-Coffee', 'Taro Full Cream',    15000),
+  ('Non-Coffee', 'Red Velvet Ice',     12000),
+  ('Non-Coffee', 'Ocean Blue',         12000),
+  ('Non-Coffee', 'Coklat',             10000),
+  ('Non-Coffee', 'Coklat Manja',       15000),
+  ('Non-Coffee', 'Tea',                 5000),
+  ('Non-Coffee', 'Lychee Tea',         10000),
+  ('Non-Coffee', 'Lemon / Lemon Tea',   7000),
+  ('Non-Coffee', 'Wedang Ndoro',        8000),
+  ('Hot Latte', 'Coffee Latte',     15000),
+  ('Hot Latte', 'Coklat Latte',     15000),
+  ('Hot Latte', 'Red Velvet Latte', 15000),
+  ('Hot Latte', 'Kopi Susu Clasic', 10000),
+  ('Black Coffee', 'V60 Filter / Japanese',  17000),
+  ('Black Coffee', 'Tubruk Arabika/Robusta', 10000),
+  ('Black Coffee', 'Lemon Black',            12000),
+  ('Black Coffee', 'Black Panther',          17000),
+  ('Black Coffee', 'Americano',              10000),
+  ('Moktail Coffee', 'Sweda Coffee Reborn', 17000),
+  ('Moktail Coffee', 'Mont Blanc',          17000),
+  ('Moktail Coffee', 'Long Peach',          15000),
+  ('Moktail Coffee', 'Manisan',             13000),
+  ('Moktail Coffee', 'Perkecut',            13000),
+  ('Food', 'Nasi Kulit Asam Manis',   16000),
+  ('Food', 'Nasi Kulit Tambah Telur', 20000),
+  ('Food', 'Mie Nyemek',              12000),
+  ('Food', 'Mie Goreng Telur',         8000),
+  ('Food', 'Mie Rebus Telur',          8000),
+  ('Food', 'Jamur Krispy Saos Pedas',  8000),
+  ('Food', 'Mendoan Sambel Kecap',     8000),
+  ('Food', 'French Fries',             8000),
+  ('Food', 'Pisang Goreng Manis',     10000)
+) AS p(category_name, name, price)
+JOIN categories cat ON cat.name = p.category_name
+WHERE NOT EXISTS (SELECT 1 FROM products WHERE products.name = p.name);
 
 
 -- promos
