@@ -32,6 +32,5 @@ EXECUTE FUNCTION update_payment_methods_updated_at();
 -- Insert default payment methods
 INSERT INTO payment_methods (icon, name, status) VALUES
   ('💵', 'Cash', 'active'),
-  ('📱', 'QRIS', 'active'),
-  ('🔀', 'Split Bill', 'active')
+  ('📱', 'QRIS', 'active')
 ON CONFLICT (name) DO NOTHING;
