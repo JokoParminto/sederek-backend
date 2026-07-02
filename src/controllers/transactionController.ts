@@ -2034,6 +2034,7 @@ export const checkout = async (
               'subtotal', items_data.subtotal,
               'total', items_data.total,
               'notes', items_data.notes,
+              'category_name', items_data.category_name,
               'addOns', items_data.add_ons
             )
             ORDER BY items_data.created_at
@@ -2056,6 +2057,7 @@ export const checkout = async (
            ti.total,
            ti.notes,
            ti.created_at,
+           cat.name as category_name,
            COALESCE(
              json_agg(
                json_build_object(
@@ -2071,10 +2073,12 @@ export const checkout = async (
              '[]'
            ) as add_ons
          FROM transaction_items ti
+         LEFT JOIN products p ON ti.product_id = p.id
+         LEFT JOIN categories cat ON p.category_id = cat.id
          LEFT JOIN transaction_item_add_ons tia ON ti.id = tia.transaction_item_id
          LEFT JOIN add_ons ao ON tia.add_on_id = ao.id
          WHERE ti.transaction_id = t.id
-         GROUP BY ti.id
+         GROUP BY ti.id, cat.name
        ) items_data ON true
        WHERE t.id = $1
        GROUP BY t.id, c.name, c.phone_number, u.full_name`,
