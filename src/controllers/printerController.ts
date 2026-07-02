@@ -216,7 +216,8 @@ export const updatePrinter = async (
 
     const ALLOWED_COLUMNS = new Set([
       'name', 'description', 'printer_type', 'connection_type',
-      'paper_width', 'font_size', 'status', 'is_default', 'auto_print', 'device_path',
+      'ip_address', 'port_number', 'device_path',
+      'paper_width', 'font_size', 'status', 'is_default', 'auto_print',
     ]);
 
     const safeUpdates = Object.fromEntries(
