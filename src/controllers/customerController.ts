@@ -126,15 +126,11 @@ export const createCustomer = async (
       email,
       avatar_url: avatarUrl,
       avatar: avatarCamel,
-      is_member: isMember,
-      isMember: isMemberCamel,
-      is_member_raw,
     } = req.body
 
     // Normalize field names (accept both camelCase and snake_case)
     const normalizedPhoneNumber = phoneNumber || phoneNumberCamel
     const normalizedAvatarUrl = avatarUrl || avatarCamel || ''
-    const normalizedIsMember = isMember !== undefined ? isMember : (isMemberCamel !== undefined ? isMemberCamel : is_member_raw ?? false)
 
     // Validation — only name is required, phone is optional
     if (!name) {
