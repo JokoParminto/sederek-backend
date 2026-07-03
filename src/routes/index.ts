@@ -14,6 +14,7 @@ import shiftRoutes from './shift.routes'
 import paymentMethodRoutes from './paymentMethod.routes'
 import printerRoutes from './printer.routes'
 import queueRoutes from './queue.routes'
+import memberTierRoutes from './memberTier.routes'
 
 const router = Router()
 
@@ -33,5 +34,6 @@ router.use('/shifts', shiftRoutes)
 router.use('/payment-methods', paymentMethodRoutes)
 router.use('/printers', printerRoutes)
 router.use('/queue', queueRoutes)
+router.use('/member-tier-rules', memberTierRoutes)
 
 export default router

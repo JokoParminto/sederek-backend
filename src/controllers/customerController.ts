@@ -169,11 +169,15 @@ export const createCustomer = async (
       }
     }
 
+    const member_type   = req.body.member_type   || null
+    const member_status = req.body.member_status || (member_type ? 'pending' : 'inactive')
+    const effectiveIsMember = member_type !== null && member_status === 'active'
+
     const result = await pool.query(
-      `INSERT INTO customers (name, phone_number, email, avatar_url, is_member)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO customers (name, phone_number, email, avatar_url, is_member, member_type, member_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [name, normalizedPhoneNumber || null, email || null, normalizedAvatarUrl, normalizedIsMember]
+      [name, normalizedPhoneNumber || null, email || null, normalizedAvatarUrl, effectiveIsMember, member_type, member_status]
     )
 
     res.json(successResponse(result.rows[0], 'Customer berhasil dibuat'))
@@ -194,11 +198,12 @@ export const updateCustomer = async (
   try {
     const { id } = req.params
     const raw = req.body
-    const name        = raw.name?.trim()         || null
+    const name         = raw.name?.trim()         || null
     const phone_number = raw.phone_number?.trim() || null
-    const email       = raw.email?.trim()         || null
-    const avatar_url  = raw.avatar_url?.trim()    || null
-    const is_member   = raw.is_member
+    const email        = raw.email?.trim()         || null
+    const avatar_url   = raw.avatar_url?.trim()    || null
+    const member_type   = raw.member_type   !== undefined ? (raw.member_type || null) : undefined
+    const member_status = raw.member_status !== undefined ? raw.member_status : undefined
 
     // Check if customer exists
     const existingCustomer = await pool.query(
@@ -241,15 +246,22 @@ export const updateCustomer = async (
 
     const result = await pool.query(
       `UPDATE customers
-       SET name = COALESCE($1, name),
+       SET name         = COALESCE($1, name),
            phone_number = COALESCE($2, phone_number),
-           email = COALESCE($3, email),
-           avatar_url = COALESCE($4, avatar_url),
-           is_member = COALESCE($5, is_member),
+           email        = COALESCE($3, email),
+           avatar_url   = COALESCE($4, avatar_url),
+           member_type   = CASE WHEN $5::text IS NOT NULL THEN $5::varchar ELSE member_type END,
+           member_status = CASE WHEN $6::text IS NOT NULL THEN $6::varchar ELSE member_status END,
+           is_member     = CASE
+             WHEN $5::text IS NOT NULL OR $6::text IS NOT NULL
+             THEN (COALESCE($5::varchar, member_type) IS NOT NULL AND COALESCE($6::varchar, member_status) = 'active')
+             ELSE is_member
+           END,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6
+       WHERE id = $7
        RETURNING *`,
-      [name, phone_number, email, avatar_url, is_member, id]
+      [name, phone_number, email, avatar_url,
+       member_type ?? null, member_status ?? null, id]
     )
 
     res.json(successResponse(result.rows[0], 'Customer berhasil diupdate'))

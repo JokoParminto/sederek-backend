@@ -103,7 +103,6 @@ INSERT INTO products (category_id, name, price, hpp, member_price, image_url, st
 SELECT cat.id, p.name, p.price, 0, NULL, NULL, 10000, 'active'
 FROM (VALUES
   ('Kopi Susu', 'ESKA Kopsu Ice',    17000),
-  ('Kopi Susu', 'Dyrti',             17000),
   ('Kopi Susu', 'Butterscoth',       17000),
   ('Kopi Susu', 'Savana Kopsu Ice',  17000),
   ('Kopi Susu', 'Avocado Kopsu Ice', 15000),
