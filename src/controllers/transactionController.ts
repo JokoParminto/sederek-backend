@@ -1796,23 +1796,26 @@ export const checkout = async (
         );
       }
 
-      // Calculate member pricing
-      const memberPricing = await calculateMemberPricing(
-        client,
-        item.product_id,
-        customer_id,
-      );
-      const productPrice = memberPricing.priceToUse;
+      // Trust FE-provided pricing (tier rules computed client-side)
+      const originalPriceFromDB = parseFloat(productResult.rows[0].price) || 0;
+      const feProductPrice = parseFloat(item.product_price);
+      const productPrice = !isNaN(feProductPrice) ? feProductPrice : originalPriceFromDB;
+      const feMemberPrice = item.member_price ? parseFloat(item.member_price) : null;
+      const feIsMemberPrice = item.is_member_price === true;
+      const feItemMemberSavings = parseFloat(item.member_savings) || 0;
 
       const itemProductSubtotal = productPrice * qty;
       productSubtotal += itemProductSubtotal;
+      totalMemberSavings += feItemMemberSavings * qty;
 
-      // Track member savings
-      const itemMemberSavings = memberPricing.memberSavings * qty;
-      totalMemberSavings += itemMemberSavings;
-
-      // Store member pricing info in item object for later insertion
-      item._memberPricing = memberPricing;
+      // Build compatible _memberPricing for item insert step
+      item._memberPricing = {
+        priceToUse: productPrice,
+        isMemberPrice: feIsMemberPrice,
+        originalPrice: originalPriceFromDB,
+        memberPrice: feMemberPrice,
+        memberSavings: feItemMemberSavings,
+      };
       item._calculatedPrice = productPrice;
 
       // Calculate item discount

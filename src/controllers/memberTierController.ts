@@ -33,7 +33,7 @@ export const getRules = async (_req: Request, res: Response, next: NextFunction)
  */
 export const createRule = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { tier, label, rule_type, scope, min_price, discount_amount, fixed_price, sort_order, is_active } = req.body
+    const { tier, label, rule_type, scope, min_price, discount_amount, fixed_price, sort_order, is_active, daily_limit } = req.body
 
     if (!tier || !label || !rule_type || !scope) {
       throw new AppError('VALIDATION_ERROR', 'tier, label, rule_type, scope wajib diisi', 400)
@@ -47,12 +47,12 @@ export const createRule = async (req: Request, res: Response, next: NextFunction
 
     const result = await pool.query(
       `INSERT INTO member_tier_rules
-         (tier, label, rule_type, scope, min_price, discount_amount, fixed_price, sort_order, is_active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         (tier, label, rule_type, scope, min_price, discount_amount, fixed_price, sort_order, is_active, daily_limit)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [tier, label, rule_type, scope,
        min_price || null, discount_amount || null, fixed_price || null,
-       sort_order ?? 0, is_active ?? true]
+       sort_order ?? 0, is_active ?? true, daily_limit ?? null]
     )
     res.json(successResponse(result.rows[0], 'Rule dibuat'))
   } catch (e) { next(e) }
@@ -64,7 +64,7 @@ export const createRule = async (req: Request, res: Response, next: NextFunction
 export const updateRule = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params
-    const { tier, label, rule_type, scope, min_price, discount_amount, fixed_price, sort_order, is_active } = req.body
+    const { tier, label, rule_type, scope, min_price, discount_amount, fixed_price, sort_order, is_active, daily_limit } = req.body
 
     const result = await pool.query(
       `UPDATE member_tier_rules
@@ -77,12 +77,13 @@ export const updateRule = async (req: Request, res: Response, next: NextFunction
            fixed_price     = $7,
            sort_order      = COALESCE($8, sort_order),
            is_active       = COALESCE($9, is_active),
+           daily_limit     = $10,
            updated_at      = NOW()
-       WHERE id = $10
+       WHERE id = $11
        RETURNING *`,
       [tier, label, rule_type, scope,
        min_price ?? null, discount_amount ?? null, fixed_price ?? null,
-       sort_order, is_active, id]
+       sort_order, is_active, daily_limit ?? null, id]
     )
     if (!result.rows.length) throw new AppError('NOT_FOUND', 'Rule tidak ditemukan', 404)
     res.json(successResponse(result.rows[0], 'Rule diupdate'))
@@ -98,6 +99,31 @@ export const deleteRule = async (req: Request, res: Response, next: NextFunction
     const result = await pool.query('DELETE FROM member_tier_rules WHERE id = $1 RETURNING id', [id])
     if (!result.rows.length) throw new AppError('NOT_FOUND', 'Rule tidak ditemukan', 404)
     res.json(successResponse(null, 'Rule dihapus'))
+  } catch (e) { next(e) }
+}
+
+/**
+ * GET /api/v1/member-tier-rules/daily-usage/:customerId
+ * Hitung berapa cup member sudah pakai diskon hari ini
+ */
+export const getDailyUsage = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { customerId } = req.params
+
+    // Count total discounted items in completed transactions today for this customer
+    // "Discounted" = item yang memiliki member_price (harga setelah diskon member)
+    const result = await pool.query(
+      `SELECT COALESCE(SUM(ti.quantity), 0)::int AS used
+       FROM transactions t
+       JOIN transaction_items ti ON ti.transaction_id = t.id
+       WHERE t.customer_id    = $1
+         AND t.status         = 'completed'
+         AND t.created_at::date = CURRENT_DATE AT TIME ZONE 'Asia/Jakarta' AT TIME ZONE 'UTC'
+         AND ti.member_price IS NOT NULL`,
+      [customerId]
+    )
+
+    res.json(successResponse({ used: result.rows[0].used }, 'Daily usage fetched'))
   } catch (e) { next(e) }
 }
 
