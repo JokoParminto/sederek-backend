@@ -2087,6 +2087,10 @@ export const checkout = async (
               'total', items_data.total,
               'notes', items_data.notes,
               'category_name', items_data.category_name,
+              'is_member_price', items_data.is_member_price,
+              'original_price', items_data.original_price,
+              'member_price', items_data.member_price,
+              'member_savings', items_data.member_savings,
               'addOns', items_data.add_ons
             )
             ORDER BY items_data.created_at
@@ -2109,6 +2113,10 @@ export const checkout = async (
            ti.total,
            ti.notes,
            ti.created_at,
+           ti.is_member_price,
+           ti.original_price,
+           ti.member_price,
+           ti.member_savings,
            cat.name as category_name,
            COALESCE(
              json_agg(
