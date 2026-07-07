@@ -1764,6 +1764,38 @@ export const checkout = async (
     // Step 2.6: Check if customer is member
     const customerIsMember = await isCustomerMember(client, customer_id);
 
+    // Step 2.7: Fetch daily quota state for this customer (BE enforcement)
+    let memberDailyLimit: number | null = null;
+    let memberDailyUsedBefore = 0;
+    if (customer_id && customerIsMember) {
+      const memberResult = await client.query(
+        `SELECT c.member_type, r.daily_limit
+         FROM customers c
+         LEFT JOIN member_tier_rules r
+           ON r.tier = c.member_type AND r.is_active = true AND r.daily_limit IS NOT NULL
+         WHERE c.id = $1
+         LIMIT 1`,
+        [customer_id]
+      );
+      if (memberResult.rows.length > 0) {
+        memberDailyLimit = memberResult.rows[0].daily_limit ?? null;
+      }
+      if (memberDailyLimit !== null) {
+        const usedResult = await client.query(
+          `SELECT COALESCE(SUM(ti.quantity), 0)::int AS used
+           FROM transactions t
+           JOIN transaction_items ti ON ti.transaction_id = t.id
+           WHERE t.customer_id = $1
+             AND t.status = 'completed'
+             AND (t.created_at + INTERVAL '7 hours')::date = (NOW() + INTERVAL '7 hours')::date
+             AND ti.is_member_price = true`,
+          [customer_id]
+        );
+        memberDailyUsedBefore = usedResult.rows[0].used;
+      }
+    }
+    let memberUsedInThisTrx = 0;
+
     // Step 3: Calculate totals from items WITH MEMBER PRICING
     let productSubtotal = 0;
     let totalAddOnsPrice = 0;
@@ -1799,22 +1831,39 @@ export const checkout = async (
       // Trust FE-provided pricing (tier rules computed client-side)
       const originalPriceFromDB = parseFloat(productResult.rows[0].price) || 0;
       const feProductPrice = parseFloat(item.product_price);
-      const productPrice = !isNaN(feProductPrice) ? feProductPrice : originalPriceFromDB;
       const feMemberPrice = item.member_price ? parseFloat(item.member_price) : null;
-      const feIsMemberPrice = item.is_member_price === true;
-      const feItemMemberSavings = parseFloat(item.member_savings) || 0;
+      let feIsMemberPrice = item.is_member_price === true;
+      let feItemMemberSavings = parseFloat(item.member_savings) || 0;
+
+      // BE quota enforcement: strip member price jika daily limit terlampaui
+      if (feIsMemberPrice && memberDailyLimit !== null) {
+        const totalUsed = memberDailyUsedBefore + memberUsedInThisTrx;
+        if (totalUsed >= memberDailyLimit) {
+          feIsMemberPrice = false;
+          feItemMemberSavings = 0;
+          item.product_price = String(originalPriceFromDB);
+        } else {
+          memberUsedInThisTrx += qty;
+        }
+      } else if (feIsMemberPrice) {
+        memberUsedInThisTrx += qty;
+      }
+
+      const productPrice = feIsMemberPrice
+        ? (!isNaN(feProductPrice) ? feProductPrice : originalPriceFromDB)
+        : originalPriceFromDB;
 
       const itemProductSubtotal = productPrice * qty;
       productSubtotal += itemProductSubtotal;
-      totalMemberSavings += feItemMemberSavings * qty;
+      totalMemberSavings += feIsMemberPrice ? feItemMemberSavings : 0;
 
       // Build compatible _memberPricing for item insert step
       item._memberPricing = {
         priceToUse: productPrice,
         isMemberPrice: feIsMemberPrice,
         originalPrice: originalPriceFromDB,
-        memberPrice: feMemberPrice,
-        memberSavings: feItemMemberSavings,
+        memberPrice: feIsMemberPrice ? feMemberPrice : null,
+        memberSavings: feIsMemberPrice ? feItemMemberSavings : 0,
       };
       item._calculatedPrice = productPrice;
 
