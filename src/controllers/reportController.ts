@@ -41,7 +41,7 @@ export const getDashboardStats = async (
         COALESCE(SUM(total), 0) as total_sales,
         COALESCE(AVG(total), 0) as average_sales
        FROM transactions
-       WHERE status IN ('completed', 'paid')
+       WHERE status = 'paid'
        AND ${TX_DATE} BETWEEN $1 AND $2`,
       [startDate, endDate]
     )
@@ -49,7 +49,7 @@ export const getDashboardStats = async (
     const customersResult = await pool.query(
       `SELECT COUNT(DISTINCT customer_id) as total_customers
        FROM transactions
-       WHERE status IN ('completed', 'paid')
+       WHERE status = 'paid'
        AND customer_id IS NOT NULL
        AND ${TX_DATE} BETWEEN $1 AND $2`,
       [startDate, endDate]
@@ -59,7 +59,7 @@ export const getDashboardStats = async (
       `SELECT COALESCE(SUM(ti.quantity), 0) as total_products_sold
        FROM transaction_items ti
        JOIN transactions t ON ti.transaction_id = t.id
-       WHERE t.status IN ('completed', 'paid')
+       WHERE t.status = 'paid'
        AND DATE((COALESCE(t.completed_at, t.paid_at, t.updated_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Jakarta') BETWEEN $1 AND $2`,
       [startDate, endDate]
     )
@@ -76,7 +76,7 @@ export const getDashboardStats = async (
         COUNT(*) as count,
         COALESCE(SUM(total), 0) as total
        FROM transactions
-       WHERE status IN ('completed', 'paid')
+       WHERE status = 'paid'
        AND ${TX_DATE} BETWEEN $1 AND $2
        GROUP BY payment_method`,
       [startDate, endDate]
@@ -90,7 +90,7 @@ export const getDashboardStats = async (
           COUNT(*) as transactions,
           COALESCE(SUM(total), 0) as sales
          FROM transactions
-         WHERE status IN ('completed', 'paid')
+         WHERE status = 'paid'
          AND ${TX_DATE} = $1
          GROUP BY EXTRACT(HOUR FROM ${TX_TS})
          ORDER BY hour`,
@@ -144,7 +144,7 @@ export const getDailySales = async (
         COALESCE(AVG(total), 0) as average_sale,
         COALESCE(SUM(COALESCE(discount_items,0) + COALESCE(discount_global,0)), 0) as total_discounts
        FROM transactions
-       WHERE status IN ('completed', 'paid')
+       WHERE status = 'paid'
        AND ${TX_DATE} BETWEEN $1 AND $2
        GROUP BY ${TX_DATE}
        ORDER BY date DESC
@@ -185,7 +185,7 @@ export const getMonthlySales = async (
         COALESCE(AVG(total), 0) as average_sale,
         COALESCE(SUM(COALESCE(discount_items,0) + COALESCE(discount_global,0)), 0) as total_discounts
        FROM transactions
-       WHERE status IN ('completed', 'paid')
+       WHERE status = 'paid'
        AND EXTRACT(YEAR FROM ${TX_TS}) = $1
        GROUP BY EXTRACT(YEAR FROM ${TX_TS}), EXTRACT(MONTH FROM ${TX_TS}), TO_CHAR(${TX_TS}, 'Month YYYY')
        ORDER BY year DESC, month DESC
@@ -230,7 +230,7 @@ export const getBestProducts = async (
        JOIN transactions t ON ti.transaction_id = t.id
        LEFT JOIN products p ON ti.product_id = p.id
        LEFT JOIN categories c ON p.category_id = c.id
-       WHERE t.status IN ('completed', 'paid')
+       WHERE t.status = 'paid'
        AND DATE((COALESCE(t.completed_at, t.paid_at, t.updated_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Jakarta') BETWEEN $1 AND $2
        GROUP BY ti.product_id, ti.product_name, p.image_url, c.name
        ORDER BY total_quantity DESC
@@ -274,7 +274,7 @@ export const getTopCustomers = async (
         COALESCE(AVG(t.total), 0) as average_transaction
        FROM customers c
        JOIN transactions t ON c.id = t.customer_id
-       WHERE t.status IN ('completed', 'paid')
+       WHERE t.status = 'paid'
        AND DATE((COALESCE(t.completed_at, t.paid_at, t.updated_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Jakarta') BETWEEN $1 AND $2
        GROUP BY c.id, c.name, c.phone_number, c.email, c.avatar_url
        ORDER BY total_spending DESC
@@ -317,7 +317,7 @@ export const getSalesByCategory = async (
        FROM categories c
        LEFT JOIN products p ON c.id = p.category_id
        LEFT JOIN transaction_items ti ON p.id = ti.product_id
-       LEFT JOIN transactions t ON ti.transaction_id = t.id AND t.status IN ('completed', 'paid')
+       LEFT JOIN transactions t ON ti.transaction_id = t.id AND t.status = 'paid'
          AND DATE((COALESCE(t.completed_at, t.paid_at, t.updated_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Jakarta') BETWEEN $1 AND $2
        GROUP BY c.id, c.name, c.icon
        HAVING COALESCE(SUM(ti.total), 0) > 0
@@ -359,7 +359,7 @@ export const getCashierPerformance = async (
         COALESCE(AVG(t.total), 0) as average_transaction
        FROM users u
        JOIN transactions t ON u.id = t.cashier_id
-       WHERE t.status IN ('completed', 'paid')
+       WHERE t.status = 'paid'
        AND DATE((COALESCE(t.completed_at, t.paid_at, t.updated_at) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Jakarta') BETWEEN $1 AND $2
        GROUP BY u.id, u.full_name, u.avatar_url
        ORDER BY total_sales DESC

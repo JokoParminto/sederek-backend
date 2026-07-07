@@ -1348,7 +1348,7 @@ export const completeTransaction = async (
     // Complete transaction
     await client.query(
       `UPDATE transactions
-       SET status = 'completed',
+       SET status = 'paid',
            payment_method = $1,
            payment_method_id = $2,
            payment_details = $3,
@@ -1786,7 +1786,7 @@ export const checkout = async (
            FROM transactions t
            JOIN transaction_items ti ON ti.transaction_id = t.id
            WHERE t.customer_id = $1
-             AND t.status = 'completed'
+             AND t.status = 'paid'
              AND (t.created_at + INTERVAL '7 hours')::date = (NOW() + INTERVAL '7 hours')::date
              AND ti.is_member_price = true`,
           [customer_id]
@@ -2181,27 +2181,27 @@ export const getReportsByShift = async (
           (SELECT SUM(ti.quantity)
            FROM transaction_items ti
            JOIN transactions t2 ON ti.transaction_id = t2.id
-           WHERE t2.shift_id = s.id AND t2.status IN ('paid', 'completed')
+           WHERE t2.shift_id = s.id AND t2.status = 'paid'
           ), 0
         )::int as total_items,
-        COALESCE(SUM(CASE WHEN t.status IN ('paid', 'completed') THEN t.total ELSE 0 END), 0) as total_sales,
-        COALESCE(SUM(CASE WHEN t.status IN ('paid', 'completed') THEN COALESCE(t.discount_items, 0) + COALESCE(t.discount_global, 0) ELSE 0 END), 0) as total_discount,
+        COALESCE(SUM(CASE WHEN t.status = 'paid' THEN t.total ELSE 0 END), 0) as total_sales,
+        COALESCE(SUM(CASE WHEN t.status = 'paid' THEN COALESCE(t.discount_items, 0) + COALESCE(t.discount_global, 0) ELSE 0 END), 0) as total_discount,
         COALESCE(
           (SELECT SUM(COALESCE(jumlah, 0)) FROM shift_expenses WHERE shift_id = s.id),
           0
         ) as total_expenses,
-        COALESCE(SUM(CASE WHEN t.status IN ('paid', 'completed') THEN t.total ELSE 0 END), 0) -
+        COALESCE(SUM(CASE WHEN t.status = 'paid' THEN t.total ELSE 0 END), 0) -
         COALESCE(
           (SELECT SUM(ti.quantity * COALESCE(p.hpp, 0))
            FROM transaction_items ti
            LEFT JOIN products p ON ti.product_id = p.id
            JOIN transactions t2 ON ti.transaction_id = t2.id
-           WHERE t2.shift_id = s.id AND t2.status IN ('paid', 'completed')
+           WHERE t2.shift_id = s.id AND t2.status = 'paid'
           ), 0
         ) as total_netto
       FROM shifts s
       LEFT JOIN users u ON s.cashier_id = u.id
-      LEFT JOIN transactions t ON s.id = t.shift_id AND t.status IN ('paid', 'completed')
+      LEFT JOIN transactions t ON s.id = t.shift_id AND t.status = 'paid'
       WHERE 1=1
     `;
 
@@ -2296,7 +2296,7 @@ export const getTopProducts = async (
         SUM(ti.total) AS total_revenue
       FROM transaction_items ti
       JOIN transactions t ON ti.transaction_id = t.id
-      WHERE t.status IN ('paid', 'completed')
+      WHERE t.status = 'paid'
       ${shiftFilter}
       GROUP BY ti.product_id, ti.product_name
       ORDER BY total_qty DESC
