@@ -118,7 +118,7 @@ export const getDailyUsage = async (req: Request, res: Response, next: NextFunct
        JOIN transaction_items ti ON ti.transaction_id = t.id
        WHERE t.customer_id = $1
          AND t.status = 'completed'
-         AND (t.created_at AT TIME ZONE 'Asia/Jakarta')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date
+         AND (t.created_at + INTERVAL '7 hours')::date = (NOW() + INTERVAL '7 hours')::date
          AND ti.is_member_price = true`,
       [customerId]
     )
