@@ -479,6 +479,15 @@ export const getShiftSummary = async (
     // Total kas yang seharusnya ada = modal + penjualan cash - belanja
     const expectedCash = modal + cashIncome - totalExpenses;
 
+    // For closed shifts, fetch stored actual cash & shopee food data from shift_summaries
+    const summariesResult = await pool.query(
+      `SELECT actual_cash, expected_cash, selisih, net_income as stored_net_income,
+              shopee_food_amount, shopee_food_discount_percent, shopee_food_discount_nominal, shopee_food_net
+       FROM shift_summaries WHERE shift_id = $1 LIMIT 1`,
+      [id],
+    );
+    const stored = summariesResult.rows[0] ?? null;
+
     const summary = {
       shift,
       modal_awal: modal,
@@ -489,6 +498,14 @@ export const getShiftSummary = async (
       pendapatan_shift: netIncome,
       total_kas: expectedCash,
       net_income: netIncome,
+      // Stored on-close data (null for active shifts)
+      actual_cash: stored ? parseFloat(stored.actual_cash) || 0 : null,
+      expected_cash: stored ? parseFloat(stored.expected_cash) || 0 : expectedCash,
+      selisih: stored ? parseFloat(stored.selisih) || 0 : null,
+      shopee_food_amount: stored ? parseFloat(stored.shopee_food_amount) || 0 : 0,
+      shopee_food_discount_percent: stored ? parseFloat(stored.shopee_food_discount_percent) || 0 : 0,
+      shopee_food_discount_nominal: stored ? parseFloat(stored.shopee_food_discount_nominal) || 0 : 0,
+      shopee_food_net: stored ? parseFloat(stored.shopee_food_net) || 0 : 0,
     };
 
     res.json(successResponse(summary, "Shift summary"));
