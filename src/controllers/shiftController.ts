@@ -28,19 +28,19 @@ export const openShift = async (
       throw new AppError("UNAUTHORIZED", "User tidak terautentikasi", 401);
     }
 
-    if (!modal_awal || modal_awal <= 0) {
-      throw new AppError(
-        "VALIDATION_ERROR",
-        "Modal awal harus lebih dari 0",
-        400,
-      );
-    }
-
-    const modalAwalValue = parseFloat(modal_awal);
+    const modalAwalValue = Number.parseFloat(String(modal_awal));
     if (isNaN(modalAwalValue)) {
       throw new AppError(
         "VALIDATION_ERROR",
         "Modal awal harus berupa angka",
+        400,
+      );
+    }
+
+    if (modalAwalValue < 0) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Modal awal tidak boleh negatif",
         400,
       );
     }
