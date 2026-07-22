@@ -4,6 +4,7 @@ import { successResponse } from "../utils/response";
 import { AppError } from "../middleware/errorHandler";
 import { isCustomerMember } from "../utils/transactionHelpers";
 import { enqueueHoldOrder, dequeueByRefId, syncHoldOrderQueue } from "./queueController";
+import { quoteMemberPricing } from "../services/memberPricingService";
 export const heldOrderController = {
   /**
    * Create a held order (transaction with status='open')
@@ -14,11 +15,8 @@ export const heldOrderController = {
     try {
       const {
         customer_id,
-        subtotal,
-        discount_items,
         discount_global,
         discount_global_type,
-        total,
         items,
       } = req.body;
 
@@ -56,6 +54,14 @@ export const heldOrderController = {
           customerIsMember = await isCustomerMember(client, customer_id);
         }
 
+        const pricingQuote = await quoteMemberPricing(client, {
+          customer_id,
+          items,
+          discount_global,
+          discount_global_type,
+        });
+        customerIsMember = pricingQuote.customer_is_member;
+
         // ✅ Generate transaction number
         const transaction_number = `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
 
@@ -70,13 +76,13 @@ export const heldOrderController = {
             customer_id || null,
             cashierId,
             customerIsMember,
-            subtotal,
-            discount_items || 0,
-            discount_global || 0,
-            discount_global_type || "amount",
-            total,
+            pricingQuote.gross_subtotal,
+            pricingQuote.discount_items,
+            pricingQuote.discount_global_value,
+            pricingQuote.discount_global_type,
+            pricingQuote.total,
             0, // amount_paid = 0 (not paid yet)
-            total, // remaining_amount = total (full amount remaining)
+            pricingQuote.total, // remaining_amount = total (full amount remaining)
             "open", // ✅ status = 'open' (held order)
             shiftId,
             "Cash",
@@ -87,33 +93,27 @@ export const heldOrderController = {
 
         // Add items
         const itemsData = [];
-        for (const item of items) {
-          if (item.total === undefined || item.total === null) {
-            throw new AppError(
-              "VALIDATION_ERROR",
-              `Item ${item.product_name}: total is required`,
-              400,
-            );
-          }
+        for (const item of pricingQuote.items) {
           const itemResult = await client.query(
             `INSERT INTO transaction_items
-             (transaction_id, product_id, product_name, quantity, product_price, original_price, member_price, is_member_price, member_savings, discount_amount, discount_type, subtotal, total, payment_status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             (transaction_id, product_id, product_name, quantity, product_price, original_price, member_price, is_member_price, member_savings, member_priced_quantity, discount_amount, discount_type, subtotal, total, payment_status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
              RETURNING *`,
             [
               transactionId,
-              item.product_id || null,
+              item.product_id,
               item.product_name,
               item.quantity,
-              item.product_price, // The actual price to charge
-              item.original_price, // Regular/base price
-              item.member_price || null, // Member price if available
+              item.effective_unit_price,
+              item.original_unit_price,
+              item.member_unit_price,
               item.is_member_price || false, // If member price is being used
-              item.member_savings ?? item.member_saving ?? 0, // Savings from member pricing
-              item.discount_amount || 0,
-              item.discount_type || "amount",
-              item.subtotal,
-              item.total, // total from payload (required)
+              item.member_savings,
+              item.member_priced_quantity,
+              item.calculated_discount,
+              item.discount_type,
+              item.product_subtotal,
+              item.total,
               "unpaid", // payment_status = 'unpaid' initially
             ],
           );
@@ -121,7 +121,7 @@ export const heldOrderController = {
           itemsData.push(itemData);
 
           // Add add-ons if provided
-          if (Array.isArray(item.addOns) && item.addOns.length > 0) {
+          if (item.addOns.length > 0) {
             for (const addOn of item.addOns) {
               await client.query(
                 `INSERT INTO transaction_item_add_ons
@@ -211,6 +211,8 @@ export const heldOrderController = {
                     'original_price', ti.original_price,
                     'member_price', ti.member_price,
                     'is_member_price', ti.is_member_price,
+                    'member_savings', ti.member_savings,
+                    'member_priced_quantity', ti.member_priced_quantity,
                     'quantity', ti.quantity,
                     'notes', ti.notes,
                     'discount_amount', ti.discount_amount,
@@ -311,11 +313,17 @@ export const heldOrderController = {
                     'product_id', ti.product_id,
                     'product_name', ti.product_name,
                     'product_price', ti.product_price,
+                    'original_price', ti.original_price,
+                    'member_price', ti.member_price,
+                    'is_member_price', ti.is_member_price,
+                    'member_savings', ti.member_savings,
+                    'member_priced_quantity', ti.member_priced_quantity,
                     'quantity', ti.quantity,
                     'notes', ti.notes,
                     'discount_amount', ti.discount_amount,
                     'discount_type', ti.discount_type,
                     'subtotal', ti.subtotal,
+                    'total', ti.total,
                     'payment_status', ti.payment_status,
                     'category_name', cat.name
                   ) ORDER BY ti.created_at
@@ -425,11 +433,8 @@ export const heldOrderController = {
       const { id } = req.params;
       const {
         customer_id,
-        subtotal,
-        discount_items,
         discount_global,
         discount_global_type,
-        total,
         version,
         items,
       } = req.body;
@@ -481,6 +486,14 @@ export const heldOrderController = {
           }
         }
 
+        const pricingQuote = await quoteMemberPricing(client, {
+          customer_id,
+          items,
+          discount_global,
+          discount_global_type,
+        });
+        customerIsMember = pricingQuote.customer_is_member;
+
         await client.query(
           `UPDATE transactions
            SET customer_id = $1, customer_is_member = $2, subtotal = $3, discount_items = $4, discount_global = $5,
@@ -489,11 +502,11 @@ export const heldOrderController = {
           [
             customer_id || null,
             customerIsMember,
-            subtotal,
-            discount_items || 0,
-            discount_global || 0,
-            discount_global_type || "amount",
-            total,
+            pricingQuote.gross_subtotal,
+            pricingQuote.discount_items,
+            pricingQuote.discount_global_value,
+            pricingQuote.discount_global_type,
+            pricingQuote.total,
             id,
           ],
         );
@@ -504,40 +517,34 @@ export const heldOrderController = {
           [id],
         );
 
-        for (const item of items) {
-          if (item.total === undefined || item.total === null) {
-            throw new AppError(
-              "VALIDATION_ERROR",
-              `Item ${item.product_name}: total is required`,
-              400,
-            );
-          }
+        for (const item of pricingQuote.items) {
           const itemResult = await client.query(
             `INSERT INTO transaction_items
-             (transaction_id, product_id, product_name, quantity, product_price, original_price, member_price, is_member_price, member_savings, discount_amount, discount_type, subtotal, total, payment_status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             (transaction_id, product_id, product_name, quantity, product_price, original_price, member_price, is_member_price, member_savings, member_priced_quantity, discount_amount, discount_type, subtotal, total, payment_status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
              RETURNING id`,
             [
               id,
-              item.product_id || null,
+              item.product_id,
               item.product_name,
               item.quantity,
-              item.product_price, // The actual price to charge
-              item.original_price, // Regular/base price
-              item.member_price || null, // Member price if available
+              item.effective_unit_price,
+              item.original_unit_price,
+              item.member_unit_price,
               item.is_member_price || false, // If member price is being used
-              item.member_savings ?? item.member_saving ?? 0, // Savings from member pricing
-              item.discount_amount || 0,
-              item.discount_type || "amount",
-              item.subtotal,
-              item.total, // total from payload (required)
+              item.member_savings,
+              item.member_priced_quantity,
+              item.calculated_discount,
+              item.discount_type,
+              item.product_subtotal,
+              item.total,
               "unpaid", // payment_status
             ],
           );
           const itemId = itemResult.rows[0].id;
 
           // Add add-ons if provided
-          if (Array.isArray(item.addOns) && item.addOns.length > 0) {
+          if (item.addOns.length > 0) {
             for (const addOn of item.addOns) {
               await client.query(
                 `INSERT INTO transaction_item_add_ons
@@ -585,10 +592,16 @@ export const heldOrderController = {
                       'product_id', ti.product_id,
                       'product_name', ti.product_name,
                       'product_price', ti.product_price,
+                      'original_price', ti.original_price,
+                      'member_price', ti.member_price,
+                      'is_member_price', ti.is_member_price,
+                      'member_savings', ti.member_savings,
+                      'member_priced_quantity', ti.member_priced_quantity,
                       'quantity', ti.quantity,
                       'discount_amount', ti.discount_amount,
                       'discount_type', ti.discount_type,
                       'subtotal', ti.subtotal,
+                      'total', ti.total,
                       'payment_status', ti.payment_status,
                       'category_name', cat.name
                     ) ORDER BY ti.created_at

@@ -12,6 +12,10 @@ import {
   getPaymentMethodById,
 } from "../utils/transactionHelpers";
 import { enqueuePaidOrder, updateHoldToPaid } from "./queueController";
+import {
+  quoteMemberPricing,
+  type MemberPricingQuoteRequest,
+} from "../services/memberPricingService";
 
 /**
  * Generate transaction number (TRX-YYYYMMDD-XXXX)
@@ -1673,6 +1677,22 @@ export const getTransactions = async (
   }
 };
 
+export const quoteTransaction = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const quote = await quoteMemberPricing(
+      pool,
+      req.body as MemberPricingQuoteRequest,
+    );
+    res.json(successResponse(quote, "Quote berhasil dihitung"));
+  } catch (error) {
+    next(error);
+  }
+};
+
 /**
  * Checkout - Create and complete transaction in one step
  * POST /api/v1/transactions/checkout
@@ -1718,9 +1738,11 @@ export const checkout = async (
 
     if (paymentMehtodData) {
       payment_method = paymentMehtodData.name;
-      payment_details = {
-        [paymentMehtodData.name]: req.body.amount_paid,
-      };
+      if (!payment_details) {
+        payment_details = {
+          [paymentMehtodData.name]: req.body.amount_paid,
+        };
+      }
     }
 
     // const normalizedPaymentMethod = String(payment_method || "").toLowerCase();
@@ -1761,155 +1783,27 @@ export const checkout = async (
       ? payment_method_id
       : await resolvePaymentMethodId(client, payment_method);
 
-    // Step 2.6: Check if customer is member
-    const customerIsMember = await isCustomerMember(client, customer_id);
-
-    // Step 2.7: Fetch daily quota state for this customer (BE enforcement)
-    let memberDailyLimit: number | null = null;
-    let memberDailyUsedBefore = 0;
-    if (customer_id && customerIsMember) {
-      const memberResult = await client.query(
-        `SELECT c.member_type, r.daily_limit
-         FROM customers c
-         LEFT JOIN member_tier_rules r
-           ON r.tier = c.member_type AND r.is_active = true AND r.daily_limit IS NOT NULL
-         WHERE c.id = $1
-         LIMIT 1`,
-        [customer_id]
-      );
-      if (memberResult.rows.length > 0) {
-        memberDailyLimit = memberResult.rows[0].daily_limit ?? null;
-      }
-      if (memberDailyLimit !== null) {
-        const usedResult = await client.query(
-          `SELECT COALESCE(SUM(ti.quantity), 0)::int AS used
-           FROM transactions t
-           JOIN transaction_items ti ON ti.transaction_id = t.id
-           WHERE t.customer_id = $1
-             AND t.status = 'paid'
-             AND (t.created_at + INTERVAL '7 hours')::date = (NOW() + INTERVAL '7 hours')::date
-             AND ti.is_member_price = true`,
-          [customer_id]
-        );
-        memberDailyUsedBefore = usedResult.rows[0].used;
-      }
-    }
-    let memberUsedInThisTrx = 0;
-
-    // Step 3: Calculate totals from items WITH MEMBER PRICING
-    let productSubtotal = 0;
-    let totalAddOnsPrice = 0;
-    let totalItemDiscounts = 0;
-    let totalMemberSavings = 0;
-
-    // Validate and sum items
-    for (const item of items) {
-      const productResult = await client.query(
-        "SELECT stock, price FROM products WHERE id = $1 AND status = $2",
-        [item.product_id, "active"],
-      );
-
-      if (productResult.rows.length === 0) {
-        throw new AppError(
-          "NOT_FOUND",
-          `Produk ${item.product_name} tidak ditemukan atau tidak aktif`,
-          404,
-        );
-      }
-
-      const qty = parseInt(item.quantity) || 1;
-      const availableStock = parseInt(productResult.rows[0].stock) || 0;
-
-      if (availableStock < qty) {
-        throw new AppError(
-          "OUT_OF_STOCK",
-          `Stok ${item.product_name} tidak cukup. Stok tersisa: ${availableStock}`,
-          400,
-        );
-      }
-
-      // Trust FE-provided pricing (tier rules computed client-side)
-      const originalPriceFromDB = parseFloat(productResult.rows[0].price) || 0;
-      const feProductPrice = parseFloat(item.product_price);
-      const feMemberPrice = item.member_price ? parseFloat(item.member_price) : null;
-      let feIsMemberPrice = item.is_member_price === true;
-      let feItemMemberSavings = parseFloat(item.member_savings) || 0;
-
-      // BE quota enforcement: strip member price jika daily limit terlampaui
-      if (feIsMemberPrice && memberDailyLimit !== null) {
-        const totalUsed = memberDailyUsedBefore + memberUsedInThisTrx;
-        if (totalUsed >= memberDailyLimit) {
-          feIsMemberPrice = false;
-          feItemMemberSavings = 0;
-          item.product_price = String(originalPriceFromDB);
-        } else {
-          memberUsedInThisTrx += qty;
-        }
-      } else if (feIsMemberPrice) {
-        memberUsedInThisTrx += qty;
-      }
-
-      const productPrice = feIsMemberPrice
-        ? (!isNaN(feProductPrice) ? feProductPrice : originalPriceFromDB)
-        : originalPriceFromDB;
-
-      const itemProductSubtotal = productPrice * qty;
-      productSubtotal += itemProductSubtotal;
-      totalMemberSavings += feIsMemberPrice ? feItemMemberSavings : 0;
-
-      // Build compatible _memberPricing for item insert step
-      item._memberPricing = {
-        priceToUse: productPrice,
-        isMemberPrice: feIsMemberPrice,
-        originalPrice: originalPriceFromDB,
-        memberPrice: feIsMemberPrice ? feMemberPrice : null,
-        memberSavings: feIsMemberPrice ? feItemMemberSavings : 0,
-      };
-      item._calculatedPrice = productPrice;
-
-      // Calculate item discount
-      const discountAmount = parseFloat(item.discount_amount) || 0;
-      if (item.discount_type === "percentage") {
-        totalItemDiscounts += (itemProductSubtotal * discountAmount) / 100;
-      } else {
-        totalItemDiscounts += discountAmount;
-      }
-
-      // Sum add-ons
-      if (Array.isArray(item.addOns) && item.addOns.length > 0) {
-        for (const addon of item.addOns) {
-          totalAddOnsPrice += parseFloat(addon.subtotal) || 0;
-        }
-      }
-    }
-
-    const subtotalWithAddOns = productSubtotal + totalAddOnsPrice;
-
-    // Calculate global discount
-    const discountGlobalNum = parseFloat(discount_global) || 0;
-    let globalDiscountAmount = 0;
-    if (discount_global_type === "percentage") {
-      globalDiscountAmount = (productSubtotal * discountGlobalNum) / 100;
-    } else {
-      globalDiscountAmount = discountGlobalNum;
-    }
+    // Step 3: Calculate authoritative prices and lock member quota for checkout.
+    const pricingQuote = await quoteMemberPricing(
+      client,
+      {
+        customer_id,
+        items,
+        discount_global,
+        discount_global_type,
+      },
+      { lockCustomer: true },
+    );
 
     // Step 3.5: Calculate promo discount
     const promoInfo = await calculatePromoDiscount(
       client,
       promo_id,
-      productSubtotal,
+      pricingQuote.subtotal_after_item_discounts,
     );
     const promoAmount = promoInfo ? promoInfo.promoAmount : 0;
 
-    // Calculate final total with promo
-    const total = Math.max(
-      0,
-      subtotalWithAddOns -
-        totalItemDiscounts -
-        globalDiscountAmount -
-        promoAmount,
-    );
+    const total = Math.max(0, pricingQuote.total - promoAmount);
 
     if (amountPaidValue < total) {
       throw new AppError(
@@ -1937,10 +1831,10 @@ export const checkout = async (
         transactionNumber,
         customer_id || null,
         cashierId,
-        subtotalWithAddOns.toFixed(2),
-        totalItemDiscounts.toFixed(2),
-        globalDiscountAmount.toFixed(2),
-        discount_global_type,
+        pricingQuote.gross_subtotal.toFixed(2),
+        pricingQuote.discount_items.toFixed(2),
+        pricingQuote.discount_global_amount.toFixed(2),
+        pricingQuote.discount_global_type,
         total.toFixed(2),
         payment_method,
         resolvedPaymentMethodId,
@@ -1950,8 +1844,8 @@ export const checkout = async (
         notes || null,
         "paid",
         shiftId,
-        totalMemberSavings.toFixed(2),
-        customerIsMember,
+        pricingQuote.total_member_savings.toFixed(2),
+        pricingQuote.customer_is_member,
         promoInfo ? promoInfo.promoId : null,
         promoInfo ? promoInfo.promoName : null,
         promoInfo ? promoInfo.promoDiscountType : null,
@@ -1964,53 +1858,42 @@ export const checkout = async (
     console.log("[checkout] Created transaction:", transactionId);
 
     // Step 5: Insert items with member pricing and add-ons
-    for (const item of items) {
-      const memberPricing = item._memberPricing;
-      const productPrice = item._calculatedPrice;
-      const qty = parseInt(item.quantity);
-
-      const itemSubtotal = productPrice * qty;
-      const itemMemberSavings = memberPricing.memberSavings * qty;
-
-      let itemDiscountAmount = 0;
-      if (item.discount_type === "percentage") {
-        itemDiscountAmount =
-          (itemSubtotal * parseFloat(item.discount_amount)) / 100;
-      } else {
-        itemDiscountAmount = parseFloat(item.discount_amount) || 0;
-      }
-      const itemTotal = itemSubtotal - itemDiscountAmount;
+    for (const quotedItem of pricingQuote.items) {
+      const itemSubtotal = quotedItem.product_subtotal;
+      const itemTotal = quotedItem.total;
 
       const itemResult = await client.query(
         `INSERT INTO transaction_items (
           transaction_id, product_id, product_name, product_price, quantity,
           discount_amount, discount_type, subtotal, total, notes,
-          original_price, member_price, is_member_price, member_savings
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          original_price, member_price, is_member_price, member_savings,
+          member_priced_quantity
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING id`,
         [
           transactionId,
-          item.product_id,
-          item.product_name,
-          productPrice,
-          qty,
-          itemDiscountAmount,
-          item.discount_type || "amount",
+          quotedItem.product_id,
+          quotedItem.product_name,
+          quotedItem.effective_unit_price,
+          quotedItem.quantity,
+          quotedItem.calculated_discount,
+          quotedItem.discount_type,
           itemSubtotal,
           itemTotal,
-          item.notes || null,
-          memberPricing.originalPrice,
-          memberPricing.memberPrice,
-          memberPricing.isMemberPrice,
-          itemMemberSavings.toFixed(2),
+          quotedItem.notes || null,
+          quotedItem.original_unit_price,
+          quotedItem.member_unit_price,
+          quotedItem.is_member_price,
+          quotedItem.member_savings.toFixed(2),
+          quotedItem.member_priced_quantity,
         ],
       );
 
       const itemId = itemResult.rows[0].id;
 
       // Insert add-ons for this item
-      if (Array.isArray(item.addOns) && item.addOns.length > 0) {
-        for (const addon of item.addOns) {
+      if (quotedItem.addOns.length > 0) {
+        for (const addon of quotedItem.addOns) {
           await client.query(
             `INSERT INTO transaction_item_add_ons (transaction_item_id, add_on_id, quantity, price, subtotal)
              VALUES ($1, $2, $3, $4, $5)`,
@@ -2091,6 +1974,7 @@ export const checkout = async (
               'original_price', items_data.original_price,
               'member_price', items_data.member_price,
               'member_savings', items_data.member_savings,
+              'member_priced_quantity', items_data.member_priced_quantity,
               'addOns', items_data.add_ons
             )
             ORDER BY items_data.created_at
@@ -2115,8 +1999,9 @@ export const checkout = async (
            ti.created_at,
            ti.is_member_price,
            ti.original_price,
-           ti.member_price,
-           ti.member_savings,
+            ti.member_price,
+            ti.member_savings,
+            ti.member_priced_quantity,
            cat.name as category_name,
            COALESCE(
              json_agg(

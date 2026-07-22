@@ -33,6 +33,12 @@ router.get('/reports/by-shift', transactionController.getReportsByShift)
 router.get('/stats/top-products', transactionController.getTopProducts)
 
 /**
+ * Calculate authoritative cart quote
+ * POST /transactions/quote
+ */
+router.post('/quote', transactionController.quoteTransaction)
+
+/**
  * Checkout - Create and complete transaction in one step
  * POST /transactions/checkout
  */
