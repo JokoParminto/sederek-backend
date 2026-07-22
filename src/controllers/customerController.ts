@@ -194,12 +194,19 @@ export const updateCustomer = async (
   try {
     const { id } = req.params
     const raw = req.body
+    const hasField = (field: string) => Object.prototype.hasOwnProperty.call(raw, field)
+    const hasName         = hasField('name')
+    const hasPhoneNumber  = hasField('phone_number')
+    const hasEmail        = hasField('email')
+    const hasAvatarUrl    = hasField('avatar_url')
+    const hasMemberType   = hasField('member_type')
+    const hasMemberStatus = hasField('member_status')
     const name         = raw.name?.trim()         || null
     const phone_number = raw.phone_number?.trim() || null
     const email        = raw.email?.trim()         || null
     const avatar_url   = raw.avatar_url?.trim()    || null
-    const member_type   = raw.member_type   !== undefined ? (raw.member_type || null) : undefined
-    const member_status = raw.member_status !== undefined ? raw.member_status : undefined
+    const member_type   = hasMemberType ? (raw.member_type || null) : null
+    const member_status = hasMemberStatus ? raw.member_status : null
 
     // Check if customer exists
     const existingCustomer = await pool.query(
@@ -242,22 +249,32 @@ export const updateCustomer = async (
 
     const result = await pool.query(
       `UPDATE customers
-       SET name         = COALESCE($1, name),
-           phone_number = COALESCE($2, phone_number),
-           email        = COALESCE($3, email),
-           avatar_url   = COALESCE($4, avatar_url),
-           member_type   = CASE WHEN $5::text IS NOT NULL THEN $5::varchar ELSE member_type END,
-           member_status = CASE WHEN $6::text IS NOT NULL THEN $6::varchar ELSE member_status END,
+       SET name         = CASE WHEN $1::boolean THEN COALESCE($2::varchar, name) ELSE name END,
+           phone_number = CASE WHEN $3::boolean THEN $4::varchar ELSE phone_number END,
+           email        = CASE WHEN $5::boolean THEN $6::varchar ELSE email END,
+           avatar_url   = CASE WHEN $7::boolean THEN $8::varchar ELSE avatar_url END,
+           member_type   = CASE WHEN $9::boolean THEN $10::varchar ELSE member_type END,
+           member_status = CASE WHEN $11::boolean THEN $12::varchar ELSE member_status END,
            is_member     = CASE
-             WHEN $5::text IS NOT NULL OR $6::text IS NOT NULL
-             THEN (COALESCE($5::varchar, member_type) IS NOT NULL AND COALESCE($6::varchar, member_status) = 'active')
+             WHEN $9::boolean OR $11::boolean
+             THEN (
+               (CASE WHEN $9::boolean THEN $10::varchar ELSE member_type END) IS NOT NULL
+               AND (CASE WHEN $11::boolean THEN $12::varchar ELSE member_status END) = 'active'
+             )
              ELSE is_member
            END,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $7
+       WHERE id = $13
        RETURNING *`,
-      [name, phone_number, email, avatar_url,
-       member_type ?? null, member_status ?? null, id]
+      [
+        hasName, name,
+        hasPhoneNumber, phone_number,
+        hasEmail, email,
+        hasAvatarUrl, avatar_url,
+        hasMemberType, member_type,
+        hasMemberStatus, member_status,
+        id,
+      ]
     )
 
     res.json(successResponse(result.rows[0], 'Customer berhasil diupdate'))
