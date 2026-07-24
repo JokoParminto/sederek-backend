@@ -215,9 +215,6 @@ export const closeShift = async (
     const {
       actual_cash,
       shopee_food_amount = 0,
-      shopee_food_discount_percent = 0,
-      shopee_food_discount_nominal = 0,
-      shopee_food_net = 0,
     } = req.body;
     const cashierId = req.user?.id;
 
@@ -229,9 +226,6 @@ export const closeShift = async (
       "Shopee food:",
       {
         amount: shopee_food_amount,
-        discount_percent: shopee_food_discount_percent,
-        discount_nominal: shopee_food_discount_nominal,
-        net: shopee_food_net,
       },
     );
 
@@ -239,25 +233,21 @@ export const closeShift = async (
       throw new AppError("UNAUTHORIZED", "User tidak terautentikasi", 401);
     }
 
-    if (!actual_cash || actual_cash < 0) {
+    const actualCashValue = Number(String(actual_cash));
+    if (actual_cash === undefined || actual_cash === null || !Number.isFinite(actualCashValue) || actualCashValue < 0) {
       throw new AppError(
         "VALIDATION_ERROR",
-        "Actual cash harus diisi dan positif",
+        "Hasil hitung kasir harus berupa angka dan tidak boleh negatif",
         400,
       );
     }
 
-    const actualCashValue = parseFloat(actual_cash);
-    if (isNaN(actualCashValue)) {
-      throw new AppError(
-        "VALIDATION_ERROR",
-        "Actual cash harus berupa angka",
-        400,
-      );
-    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
 
     // Check if shift exists and belongs to cashier
-    const shiftResult = await pool.query(
+    const shiftResult = await client.query(
       "SELECT * FROM shifts WHERE id = $1 AND cashier_id = $2 AND status = $3",
       [id, cashierId, "active"],
     );
@@ -273,28 +263,38 @@ export const closeShift = async (
     const shift = shiftResult.rows[0];
 
     // Get shift summary - calculate totals
-    const totalSalesResult = await pool.query(
+    const totalSalesResult = await client.query(
       `SELECT COALESCE(SUM(total), 0) as total
        FROM transactions
        WHERE shift_id = $1 AND status = 'paid'`,
       [id],
     );
 
-    const cashIncomeResult = await pool.query(
-      `SELECT COALESCE(SUM(total), 0) as total
-       FROM transactions
-       WHERE shift_id = $1 AND status = 'paid' AND LOWER(payment_method) LIKE '%cash%'`,
+    const paymentIncomeResult = await client.query(
+      `WITH shift_payments AS (
+         SELECT tp.amount_paid AS amount, tp.payment_method
+         FROM transaction_payments tp
+         JOIN transactions t ON t.id = tp.transaction_id
+         WHERE t.shift_id = $1 AND t.status = 'paid'
+
+         UNION ALL
+
+         SELECT t.total AS amount, t.payment_method
+         FROM transactions t
+         WHERE t.shift_id = $1
+           AND t.status = 'paid'
+           AND NOT EXISTS (
+             SELECT 1 FROM transaction_payments tp WHERE tp.transaction_id = t.id
+           )
+       )
+       SELECT
+         COALESCE(SUM(CASE WHEN LOWER(payment_method) LIKE '%cash%' THEN amount ELSE 0 END), 0) AS cash_total,
+         COALESCE(SUM(CASE WHEN LOWER(payment_method) LIKE '%qris%' THEN amount ELSE 0 END), 0) AS qris_total
+       FROM shift_payments`,
       [id],
     );
 
-    const qrisIncomeResult = await pool.query(
-      `SELECT COALESCE(SUM(total), 0) as total
-       FROM transactions
-       WHERE shift_id = $1 AND status = 'paid' AND LOWER(payment_method) LIKE '%qris%'`,
-      [id],
-    );
-
-    const expensesResult = await pool.query(
+    const expensesResult = await client.query(
       `SELECT COALESCE(SUM(jumlah), 0) as total
        FROM shift_expenses
        WHERE shift_id = $1`,
@@ -302,8 +302,8 @@ export const closeShift = async (
     );
 
     const totalSalesIncome = parseFloat(totalSalesResult.rows[0]?.total) || 0;
-    const cashIncome = parseFloat(cashIncomeResult.rows[0]?.total) || 0;
-    const qrisIncome = parseFloat(qrisIncomeResult.rows[0]?.total) || 0;
+    const cashIncome = parseFloat(paymentIncomeResult.rows[0]?.cash_total) || 0;
+    const qrisIncome = parseFloat(paymentIncomeResult.rows[0]?.qris_total) || 0;
     const totalExpenses = parseFloat(expensesResult.rows[0]?.total) || 0;
     const modalAwal = parseFloat(shift.modal_awal) || 0;
 
@@ -314,15 +314,25 @@ export const closeShift = async (
     const expectedCash = modalAwal + cashIncome - totalExpenses;
     const selisih = actualCashValue - expectedCash;
 
-    const shopeeFoodAmount = parseFloat(shopee_food_amount) || 0;
-    const shopeeFoodDiscountPercent =
-      parseFloat(shopee_food_discount_percent) || 0;
-    const shopeeFoodDiscountNominal =
-      parseFloat(shopee_food_discount_nominal) || 0;
-    const shopeeFoodNet = parseFloat(shopee_food_net) || 0;
+    const parsedShopeeFoodAmount = Number(String(shopee_food_amount));
+    if (!Number.isFinite(parsedShopeeFoodAmount) || parsedShopeeFoodAmount < 0) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Total penjualan ShopeeFood harus berupa angka dan tidak boleh negatif",
+        400,
+      );
+    }
+    const shopeeFoodAmount = parsedShopeeFoodAmount;
+    const shopeeFoodDiscountPercent = 20;
+    const shopeeFoodDiscountNominal = Number(
+      ((shopeeFoodAmount * shopeeFoodDiscountPercent) / 100).toFixed(2),
+    );
+    const shopeeFoodNet = Number(
+      (shopeeFoodAmount - shopeeFoodDiscountNominal).toFixed(2),
+    );
 
     // Update shift
-    const result = await pool.query(
+    const result = await client.query(
       `UPDATE shifts
        SET status = 'closed',
            actual_cash = $1,
@@ -335,7 +345,7 @@ export const closeShift = async (
 
     const closedShift = result.rows[0];
 
-    await pool.query(
+    await client.query(
       `INSERT INTO shift_summaries
        (shift_id, modal_awal, total_sales_income, cash_income, qris_income, total_expenses, total_pos_sales,
         shopee_food_amount, shopee_food_discount_percent, shopee_food_discount_nominal, shopee_food_net,
@@ -376,6 +386,8 @@ export const closeShift = async (
       ],
     );
 
+    await client.query("COMMIT");
+
     // Return shift summary
     const summary = {
       shift: closedShift,
@@ -401,15 +413,21 @@ export const closeShift = async (
       id,
       "Shopee food data:",
       {
-        amount: shopee_food_amount,
-        discount_percent: shopee_food_discount_percent,
-        discount_nominal: shopee_food_discount_nominal,
-        net: shopee_food_net,
+        amount: shopeeFoodAmount,
+        discount_percent: shopeeFoodDiscountPercent,
+        discount_nominal: shopeeFoodDiscountNominal,
+        net: shopeeFoodNet,
       },
       "Selisih:",
       selisih,
     );
     res.json(successResponse(summary, "Shift berhasil ditutup"));
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     next(error);
   }
@@ -447,17 +465,27 @@ export const getShiftSummary = async (
       [id],
     );
 
-    const cashIncomeResult = await pool.query(
-      `SELECT COALESCE(SUM(total), 0) as total
-       FROM transactions
-       WHERE shift_id = $1 AND status = 'paid' AND LOWER(payment_method) LIKE '%cash%'`,
-      [id],
-    );
+    const paymentIncomeResult = await pool.query(
+      `WITH shift_payments AS (
+         SELECT tp.amount_paid AS amount, tp.payment_method
+         FROM transaction_payments tp
+         JOIN transactions t ON t.id = tp.transaction_id
+         WHERE t.shift_id = $1 AND t.status = 'paid'
 
-    const qrisIncomeResult = await pool.query(
-      `SELECT COALESCE(SUM(total), 0) as total
-       FROM transactions
-       WHERE shift_id = $1 AND status = 'paid' AND LOWER(payment_method) LIKE '%qris%'`,
+         UNION ALL
+
+         SELECT t.total AS amount, t.payment_method
+         FROM transactions t
+         WHERE t.shift_id = $1
+           AND t.status = 'paid'
+           AND NOT EXISTS (
+             SELECT 1 FROM transaction_payments tp WHERE tp.transaction_id = t.id
+           )
+       )
+       SELECT
+         COALESCE(SUM(CASE WHEN LOWER(payment_method) LIKE '%cash%' THEN amount ELSE 0 END), 0) AS cash_total,
+         COALESCE(SUM(CASE WHEN LOWER(payment_method) LIKE '%qris%' THEN amount ELSE 0 END), 0) AS qris_total
+       FROM shift_payments`,
       [id],
     );
 
@@ -470,42 +498,81 @@ export const getShiftSummary = async (
 
     const modal = parseFloat(shift.modal_awal) || 0;
     const totalSalesIncome = parseFloat(totalSalesResult.rows[0]?.total) || 0;
-    const cashIncome = parseFloat(cashIncomeResult.rows[0]?.total) || 0;
-    const qrisIncome = parseFloat(qrisIncomeResult.rows[0]?.total) || 0;
+    const liveCashIncome = parseFloat(paymentIncomeResult.rows[0]?.cash_total) || 0;
+    const liveQrisIncome = parseFloat(paymentIncomeResult.rows[0]?.qris_total) || 0;
     const totalExpenses = parseFloat(expensesResult.rows[0]?.total) || 0;
 
     // Pendapatan bersih = penjualan - belanja (tidak termasuk modal awal)
-    const netIncome = totalSalesIncome - totalExpenses;
+    const liveNetIncome = totalSalesIncome - totalExpenses;
     // Total kas yang seharusnya ada = modal + penjualan cash - belanja
-    const expectedCash = modal + cashIncome - totalExpenses;
+    const liveExpectedCash = modal + liveCashIncome - totalExpenses;
 
     // For closed shifts, fetch stored actual cash & shopee food data from shift_summaries
     const summariesResult = await pool.query(
-      `SELECT actual_cash, expected_cash, selisih, net_income as stored_net_income,
-              shopee_food_amount, shopee_food_discount_percent, shopee_food_discount_nominal, shopee_food_net
+      `SELECT modal_awal, total_sales_income, cash_income, qris_income, total_expenses,
+              actual_cash, expected_cash, selisih, net_income,
+               shopee_food_amount, shopee_food_discount_percent, shopee_food_discount_nominal, shopee_food_net
        FROM shift_summaries WHERE shift_id = $1 LIMIT 1`,
       [id],
     );
     const stored = summariesResult.rows[0] ?? null;
+    const isActive = shift.status === "active";
+    const useStored = !isActive && stored !== null;
+    const hasCompleteReconciliation = useStored
+      && stored.actual_cash !== null
+      && stored.expected_cash !== null
+      && stored.selisih !== null;
+    const numberOr = (value: unknown, fallback: number) => {
+      if (value === null || value === undefined) return fallback;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
+    const summaryModal = useStored ? numberOr(stored.modal_awal, modal) : modal;
+    const summarySales = useStored
+      ? numberOr(stored.total_sales_income, totalSalesIncome)
+      : totalSalesIncome;
+    const summaryCash = useStored
+      ? numberOr(stored.cash_income, liveCashIncome)
+      : liveCashIncome;
+    const summaryQris = useStored
+      ? numberOr(stored.qris_income, liveQrisIncome)
+      : liveQrisIncome;
+    const summaryExpenses = useStored
+      ? numberOr(stored.total_expenses, totalExpenses)
+      : totalExpenses;
+    const summaryNetIncome = useStored
+      ? numberOr(stored.net_income, liveNetIncome)
+      : liveNetIncome;
+    const summaryExpectedCash = useStored
+      ? numberOr(stored.expected_cash, liveExpectedCash)
+      : liveExpectedCash;
+    const actualCash = hasCompleteReconciliation
+      ? numberOr(stored.actual_cash, 0)
+      : (!isActive && shift.actual_cash !== null ? numberOr(shift.actual_cash, 0) : null);
+    const difference = hasCompleteReconciliation
+      ? numberOr(stored.selisih, (actualCash ?? 0) - summaryExpectedCash)
+      : (actualCash === null ? null : actualCash - summaryExpectedCash);
 
     const summary = {
       shift,
-      modal_awal: modal,
-      total_sales_income: totalSalesIncome,
-      cash_income: cashIncome,
-      qris_income: qrisIncome,
-      total_expenses: totalExpenses,
-      pendapatan_shift: netIncome,
-      total_kas: expectedCash,
-      net_income: netIncome,
-      // Stored on-close data (null for active shifts)
-      actual_cash: stored ? parseFloat(stored.actual_cash) || 0 : null,
-      expected_cash: stored ? parseFloat(stored.expected_cash) || 0 : expectedCash,
-      selisih: stored ? parseFloat(stored.selisih) || 0 : null,
-      shopee_food_amount: stored ? parseFloat(stored.shopee_food_amount) || 0 : 0,
-      shopee_food_discount_percent: stored ? parseFloat(stored.shopee_food_discount_percent) || 0 : 0,
-      shopee_food_discount_nominal: stored ? parseFloat(stored.shopee_food_discount_nominal) || 0 : 0,
-      shopee_food_net: stored ? parseFloat(stored.shopee_food_net) || 0 : 0,
+      modal_awal: summaryModal,
+      total_sales_income: summarySales,
+      cash_income: summaryCash,
+      qris_income: summaryQris,
+      total_expenses: summaryExpenses,
+      pendapatan_shift: summaryNetIncome,
+      total_kas: summaryExpectedCash,
+      net_income: summaryNetIncome,
+      actual_cash: actualCash,
+      expected_cash: summaryExpectedCash,
+      selisih: difference,
+      shopee_food_amount: useStored ? numberOr(stored.shopee_food_amount, 0) : 0,
+      shopee_food_discount_percent: useStored ? numberOr(stored.shopee_food_discount_percent, 20) : 20,
+      shopee_food_discount_nominal: useStored ? numberOr(stored.shopee_food_discount_nominal, 0) : 0,
+      shopee_food_net: useStored ? numberOr(stored.shopee_food_net, 0) : 0,
+      summary_source: isActive ? "live" : (hasCompleteReconciliation ? "stored" : "derived"),
+      reconciliation_complete: isActive || hasCompleteReconciliation,
     };
 
     res.json(successResponse(summary, "Shift summary"));
